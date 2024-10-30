@@ -1,0 +1,3 @@
+Server Performance Metrics:
+Average Latency: 0.0708 seconds
+Average Throughput: 41.33 frames/second

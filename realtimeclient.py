@@ -28,7 +28,7 @@ class VideoClient:
             frames.append(frame_rgb)
             frame_count += 1
             
-            if frame_count % int(fps / 2) == 0:  # 
+            if frame_count % int(fps / 8) == 0:  # 每秒发送8帧  
                 self.socket.send_pyobj((frames, fps))
                 frames = []
         

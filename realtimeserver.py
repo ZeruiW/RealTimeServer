@@ -67,9 +67,21 @@ class VideoServer:
         self.output_video = None
         self.output_stream = None
 
+        self.latencies = []
+        self.throughput = []
+        self.last_receive_time = None
+
     def receive_frames(self):
         while self.running:
             message = self.socket.recv_pyobj()
+            current_time = time.time()
+            
+            if self.last_receive_time is not None:
+                latency = current_time - self.last_receive_time
+                self.latencies.append(latency)
+            
+            self.last_receive_time = current_time
+
             if message == "STOP":
                 self.running = False
                 break
@@ -85,8 +97,10 @@ class VideoServer:
         self.output_stream.pix_fmt = 'yuv420p'
 
     def process_frames(self, frames):
+        start_time = time.time()
         self.frame_buffer.extend(frames)
         
+        frames_processed = 0
         while len(self.frame_buffer) >= 8:
             batch_frames = self.frame_buffer[:8]
             spatial_attention, logits = self.extractor.extract_attention(batch_frames)
@@ -121,6 +135,13 @@ class VideoServer:
             
             self.frame_count += 8
             self.frame_buffer = self.frame_buffer[8:]
+            frames_processed += 8
+
+        process_time = time.time() - start_time
+        if process_time > 0:
+            self.throughput.append(frames_processed / process_time)
+        
+        print(f"Processed {frames_processed} frames in {process_time:.4f} seconds. Throughput: {frames_processed / process_time:.2f} fps")
 
     def create_temporal_visualization(self):
         temporal_attention = np.array([frame['mean_attention'] for frame in self.attention_data])
@@ -187,6 +208,23 @@ class VideoServer:
         plt.savefig(os.path.join(self.output_dir, "frames_visualization.png"), dpi=300, bbox_inches='tight')
         plt.close()
 
+    def save_performance_metrics(self):
+        metrics_file = os.path.join(self.output_dir, 'performance_metrics.txt')
+        with open(metrics_file, 'w') as f:
+            f.write(f"Server Performance Metrics:\n")
+            if self.latencies:
+                f.write(f"Average Latency: {sum(self.latencies) / len(self.latencies):.4f} seconds\n")
+            else:
+                f.write("No latency data available\n")
+            if self.throughput:
+                total_frames = self.frame_count
+                total_time = sum(self.latencies)
+                average_throughput = total_frames / total_time if total_time > 0 else 0
+                f.write(f"Average Throughput: {average_throughput:.2f} frames/second\n")
+            else:
+                f.write("No throughput data available\n")
+        print(f"Performance metrics saved to: {metrics_file}")
+
     def run(self):
         Thread(target=self.receive_frames).start()
 
@@ -196,6 +234,16 @@ class VideoServer:
         print("Processing completed. Creating visualizations...")
         self.create_temporal_visualization()
         self.create_frames_visualization()
+        
+        self.save_performance_metrics()
+        
+        if self.latencies:
+            print(f"Average Latency: {sum(self.latencies) / len(self.latencies):.4f} seconds")
+        if self.throughput:
+            total_frames = self.frame_count
+            total_time = sum(self.latencies)
+            average_throughput = total_frames / total_time if total_time > 0 else 0
+            print(f"Average Throughput: {average_throughput:.2f} frames/second")
         
         # Save attention data
         with open(os.path.join(self.output_dir, "attention_data.json"), 'w') as f:
